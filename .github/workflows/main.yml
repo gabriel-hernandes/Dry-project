@@ -6,31 +6,38 @@ on:
       - main
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install dependencies
+      - name: Instalar dependências
         run: npm install
 
-      - name: Build project
+      - name: Build do projeto
         run: npm run build
 
-      - name: Create ZIP archive
+      - name: Configurar chave SSH
         run: |
-          mkdir -p dist
-          zip -r dist/dry-project.zip . -x "*.git*" -x "node_modules/*" -x "dist/*"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Upload ZIP artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dry-project
-          path: dist/dry-project.zip
+      - name: Deploy na EC2 e restart com PM2
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd ~/Dry-project
+            git pull origin main
+            npm install
+            npm run build
+            pm2 restart dry-project || pm2 start npm --name dry-project -- start
+            pm2 save
+          EOF
